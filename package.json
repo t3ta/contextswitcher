@@ -1,0 +1,25 @@
+{
+  "name": "contextswitcher",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A lightweight MCP gateway for managing multiple AI agent contexts across projects and environments.",
+  "main": "src/cli.ts",
+  "scripts": {
+    "dev": "bun src/cli.ts",
+    "test": "vitest"
+  },
+  "keywords": [
+    "mcp",
+    "ai",
+    "gateway",
+    "context",
+    "cli",
+    "typescript"
+  ],
+  "author": "t3ta",
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^1.0.0"
+  },
+  "dependencies": { "@modelcontextprotocol/sdk": "^1.9.0" }
+}
