@@ -14,17 +14,17 @@ export type McpConfig = {
 }
 
 export async function loadMcpConfig(): Promise<McpConfig> {
-  // 設定ファイルの候補パスを定義
+  // Define configuration file paths in order of priority
   const configPaths = [
-    // 1. 環境変数で指定されたパス
+    // 1. Path specified by environment variable
     process.env.MCP_CONFIG_PATH,
-    // 2. カレントディレクトリの.roo/mcp.json
+    // 2. .roo/mcp.json in current directory
     path.resolve(process.cwd(), '.roo/mcp.json'),
-    // 3. ホームディレクトリの.roo/mcp.json
+    // 3. .roo/mcp.json in home directory
     path.resolve(process.env.HOME || '', '.roo/mcp.json'),
   ].filter((p): p is string => p !== undefined)
 
-  // 存在する最初の設定ファイルを探す
+  // Find first existing configuration file
   let configPath: string | undefined
   for (const p of configPaths) {
     try {
@@ -37,11 +37,32 @@ export async function loadMcpConfig(): Promise<McpConfig> {
   }
 
   if (!configPath) {
-    throw new Error('設定ファイルが見つかりません。以下のパスを確認してください：\n' + configPaths.join('\n'))
+    throw new Error('No configuration file found')
   }
 
-  const raw = await fs.readFile(configPath, 'utf-8')
-  const parsed = JSON.parse(raw) as {
+  let raw: string
+  try {
+    raw = await fs.readFile(configPath, 'utf-8')
+  } catch (error) {
+    throw new Error(`Failed to read configuration file: ${error.message}`)
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw error // Keep original SyntaxError for invalid JSON
+    }
+    throw new Error(`Failed to parse configuration file: ${error.message}`)
+  }
+
+  // Validate configuration structure
+  if (!parsed || typeof parsed !== 'object' || !('mcpServers' in parsed)) {
+    throw new Error('Invalid configuration format')
+  }
+
+  const { mcpServers } = parsed as {
     mcpServers: Record<string, {
       command: string
       args: string[]
@@ -50,7 +71,7 @@ export async function loadMcpConfig(): Promise<McpConfig> {
     }>
   }
 
-  const servers: McpServerConfig[] = Object.entries(parsed.mcpServers).map(([name, cfg]) => ({
+  const servers: McpServerConfig[] = Object.entries(mcpServers).map(([name, cfg]) => ({
     name,
     command: cfg.command,
     args: cfg.args,

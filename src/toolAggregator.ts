@@ -3,7 +3,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ListToolsRequestSchema, type ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
-// 仮のロガー (本来は共有モジュールからインポート)
 const logger = {
   info: (...args: any[]) => console.log('[INFO]', ...args),
   error: (...args: any[]) => console.error('[ERROR]', ...args),
@@ -18,21 +17,21 @@ export type ToolListResponse = {
 
 // Helper to create StdioServerParameters from LaunchedServer
 function createStdioParams(server: LaunchedServer): StdioServerParameters | null {
-     if (!server || !server.command || !Array.isArray(server.args)) {
-         logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
-         return null;
+  if (!server || !server.command || !Array.isArray(server.args)) {
+    logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
+    return null;
+  }
+  return {
+    command: server.command,
+    args: server.args,
+    cwd: server.cwd,
+    stderr: 'pipe', // デフォルトはpipe
+    env: {
+      ...process.env,
+      ...(server.env || {}),
+      PATH: process.env.PATH || server.env?.PATH || '',
     }
-    return {
-        command: server.command,
-        args: server.args,
-        cwd: server.cwd,
-        stderr: 'pipe', // デフォルトはpipe
-        env: {
-            ...process.env,
-            ...(server.env || {}),
-            PATH: process.env.PATH || server.env?.PATH || '',
-        }
-    };
+  };
 }
 
 

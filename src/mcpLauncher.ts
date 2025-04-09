@@ -15,8 +15,8 @@ export async function spawnMcpServers(servers: McpServerConfig[]): Promise<Launc
       env: {
         ...process.env, // 既存の環境変数をコピー
         ...(server.env || {}), // サーバー固有の設定で上書き
-        // PATHは特別扱い：既存のPATHに追加する
-        PATH: `${server.env?.PATH ? server.env.PATH + ':' : ''}${process.env.PATH || ''}`
+        // PATHは特別扱い：既存のPATHを先に配置し、その後にサーバー固有のPATHを追加
+        PATH: `${process.env.PATH || ''}${server.env?.PATH ? ':' + server.env.PATH : ''}`
       }
     })
 
