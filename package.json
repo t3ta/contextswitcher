@@ -4,9 +4,14 @@
   "type": "module",
   "description": "A lightweight MCP gateway for managing multiple AI agent contexts across projects and environments.",
   "main": "src/cli.ts",
+  "bin": {
+    "contextswitcher": "dist/cli.js"
+  },
   "scripts": {
     "dev": "bun src/cli.ts",
-    "test": "vitest"
+    "build": "bun build src/cli.ts --outfile dist/cli.js --target node",
+    "test": "vitest",
+    "start": "node dist/cli.js"
   },
   "keywords": [
     "mcp",
@@ -19,7 +24,10 @@
   "author": "t3ta",
   "license": "MIT",
   "devDependencies": {
-    "vitest": "^1.0.0"
+    "vitest": "^1.0.0",
+    "@types/node": "^22.14.0"
   },
-  "dependencies": { "@modelcontextprotocol/sdk": "^1.9.0" }
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.9.0"
+  }
 }

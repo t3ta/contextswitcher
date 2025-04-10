@@ -1,4 +1,4 @@
-import { LaunchedServer } from './mcpLauncher.js' // .jsを追加
+import { LaunchedServer } from './mcpLauncher.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ListToolsRequestSchema, type ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
@@ -49,12 +49,12 @@ export async function listToolsFromServers(servers: LaunchedServer[]): Promise<T
     })
 
     try {
-      logger.debug({ server: server.name }, `Connecting to MCP server...`);
+      // logger.debug({ server: server.name }, `Connecting to MCP server...`);
       await client.connect(transport)
-      logger.debug({ server: server.name }, `Connected. Listing tools...`);
+      // logger.debug({ server: server.name }, `Connected. Listing tools...`);
 
       const response = await client.listTools()
-      logger.debug({ server: server.name, toolCount: response.tools?.length }, `Tools listed.`);
+      // logger.debug({ server: server.name, toolCount: response.tools?.length }, `Tools listed.`);
 
       return {
         tools: response.tools || [],
@@ -64,9 +64,9 @@ export async function listToolsFromServers(servers: LaunchedServer[]): Promise<T
       logger.error({ err: error, server: server.name }, `MCP Error`);
       return { tools: [], resources: [] }; // エラー時は空を返す
     } finally {
-      logger.debug({ server: server.name }, `Closing MCP client connection...`);
+      // logger.debug({ server: server.name }, `Closing MCP client connection...`);
       await client.close()
-      logger.debug({ server: server.name }, `MCP client connection closed.`);
+      // logger.debug({ server: server.name }, `MCP client connection closed.`);
     }
   })
 

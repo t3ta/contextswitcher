@@ -41,7 +41,11 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: {}
+      tools: {},
+      discovery: {
+        title: "Context Switcher",
+        description: "A lightweight MCP gateway for managing multiple AI agent contexts across projects and environments."
+      }
     }
     // debug: null は無効なオプションなので削除
   }
@@ -49,45 +53,45 @@ const server = new Server(
 
 // --- Helper Function to Stop Running Servers ---
 async function stopRunningServers() {
-    const serverNames = Object.keys(runningServers);
-    if (serverNames.length === 0) {
-        logger.debug("No running servers to stop.");
-        return;
-    }
+  const serverNames = Object.keys(runningServers);
+  if (serverNames.length === 0) {
+    logger.debug("No running servers to stop.");
+    return;
+  }
 
-    logger.info("Stopping previously running MCP server processes...");
-    const stopPromises = serverNames.map(name => {
-        const serverInfo = runningServers[name];
-        return new Promise<void>((resolve) => {
-            if (serverInfo && serverInfo.process && !serverInfo.process.killed) {
-                logger.debug(`Stopping process for server: ${name}`);
-                serverInfo.process.kill('SIGTERM'); // Send SIGTERM first
-                const timeout = setTimeout(() => {
-                    if (!serverInfo.process.killed) {
-                        logger.warn(`Process for server ${name} did not terminate gracefully, sending SIGKILL.`);
-                        serverInfo.process.kill('SIGKILL');
-                    }
-                    resolve();
-                }, 2000); // 2 second timeout
+  logger.info("Stopping previously running MCP server processes...");
+  const stopPromises = serverNames.map(name => {
+    const serverInfo = runningServers[name];
+    return new Promise<void>((resolve) => {
+      if (serverInfo && serverInfo.process && !serverInfo.process.killed) {
+        logger.debug(`Stopping process for server: ${name}`);
+        serverInfo.process.kill('SIGTERM'); // Send SIGTERM first
+        const timeout = setTimeout(() => {
+          if (!serverInfo.process.killed) {
+            logger.warn(`Process for server ${name} did not terminate gracefully, sending SIGKILL.`);
+            serverInfo.process.kill('SIGKILL');
+          }
+          resolve();
+        }, 2000); // 2 second timeout
 
-                serverInfo.process.on('exit', (code, signal) => {
-                    clearTimeout(timeout);
-                    logger.debug(`Process for server ${name} exited with code ${code}, signal ${signal}.`);
-                    resolve();
-                });
-                 serverInfo.process.on('error', (err) => { // エラーハンドリング追加
-                    clearTimeout(timeout);
-                    logger.error({ err }, `Error stopping process for server ${name}.`);
-                    resolve(); // エラーでも次に進む
-                });
-            } else {
-                resolve(); // Already stopped or invalid
-            }
+        serverInfo.process.on('exit', (code, signal) => {
+          clearTimeout(timeout);
+          logger.debug(`Process for server ${name} exited with code ${code}, signal ${signal}.`);
+          resolve();
         });
+        serverInfo.process.on('error', (err) => { // エラーハンドリング追加
+          clearTimeout(timeout);
+          logger.error({ err }, `Error stopping process for server ${name}.`);
+          resolve(); // エラーでも次に進む
+        });
+      } else {
+        resolve(); // Already stopped or invalid
+      }
     });
-    await Promise.allSettled(stopPromises);
-    runningServers = {}; // Clear the record after attempting to stop all
-    logger.info("Finished stopping server processes.");
+  });
+  await Promise.allSettled(stopPromises);
+  runningServers = {}; // Clear the record after attempting to stop all
+  logger.info("Finished stopping server processes.");
 }
 
 
@@ -97,9 +101,9 @@ async function fetchAndAggregateTools(): Promise<{ tools: any[], resources: any[
   const config = await loadMcpConfig();
   // config が null の場合も考慮
   if (!config || !config.servers || config.servers.length === 0) {
-      logger.warn("No MCP server configurations found or config is empty. Returning empty list.");
-      await stopRunningServers(); // 念のため既存サーバーを停止
-      return { tools: [], resources: [] };
+    logger.warn("No MCP server configurations found or config is empty. Returning empty list.");
+    await stopRunningServers(); // 念のため既存サーバーを停止
+    return { tools: [], resources: [] };
   }
 
   await stopRunningServers(); // Stop existing servers before starting new ones
@@ -115,22 +119,22 @@ async function fetchAndAggregateTools(): Promise<{ tools: any[], resources: any[
 
   // Helper to create StdioServerParameters from LaunchedServer (defined inside)
   const createStdioParams = (server: LaunchedServer): StdioServerParameters | null => {
-       // LaunchedServer には McpServerConfig が含まれる前提
-       if (!server || !server.command || !Array.isArray(server.args)) {
-           logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
-           return null;
+    // LaunchedServer には McpServerConfig が含まれる前提
+    if (!server || !server.command || !Array.isArray(server.args)) {
+      logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
+      return null;
+    }
+    return {
+      command: server.command,
+      args: server.args,
+      cwd: server.cwd,
+      stderr: 'pipe',
+      env: {
+        ...process.env,
+        ...(server.env || {}),
+        PATH: `${server.env?.PATH ? server.env.PATH + ':' : ''}${process.env.PATH || ''}`
       }
-      return {
-          command: server.command,
-          args: server.args,
-          cwd: server.cwd,
-          stderr: 'pipe',
-          env: {
-              ...process.env,
-              ...(server.env || {}),
-              PATH: `${server.env?.PATH ? server.env.PATH + ':' : ''}${process.env.PATH || ''}`
-          }
-      };
+    };
   }
 
   const responses = await Promise.allSettled(processes.map(async serverProcess => {
@@ -141,34 +145,34 @@ async function fetchAndAggregateTools(): Promise<{ tools: any[], resources: any[
 
     const transport = new StdioClientTransport(stdioParams);
     const client = new Client({
-        name: `contextswitcher-${serverProcess.name}-client-list`,
-        version: '0.1.0'
+      name: `contextswitcher-${serverProcess.name}-client-list`,
+      version: '0.1.0'
     });
 
     try {
-        await client.connect(transport);
-        const response = await client.listTools(); // Use helper method
-        const tools = response.tools || [];
-        const resources = response.resources || [];
+      await client.connect(transport);
+      const response = await client.listTools(); // Use helper method
+      const tools = response.tools || [];
+      const resources = response.resources || [];
 
-        // Populate the map
-        tools.forEach(tool => {
-            if (tool.name) {
-                if (toolToServerMap[tool.name]) {
-                    logger.warn(`Duplicate tool name "${tool.name}" found on server "${serverProcess.name}". Previous server: "${toolToServerMap[tool.name]}". Overwriting.`);
-                }
-                toolToServerMap[tool.name] = serverProcess.name;
-            }
-        });
-        return { tools, resources };
+      // Populate the map
+      tools.forEach(tool => {
+        if (tool.name) {
+          if (toolToServerMap[tool.name]) {
+            logger.warn(`Duplicate tool name "${tool.name}" found on server "${serverProcess.name}". Previous server: "${toolToServerMap[tool.name]}". Overwriting.`);
+          }
+          toolToServerMap[tool.name] = serverProcess.name;
+        }
+      });
+      return { tools, resources };
     } catch (error) {
-        logger.error({ err: error, server: serverProcess.name }, `MCP Error fetching tools/list`);
-        return { tools: [], resources: [] };
+      logger.error({ err: error, server: serverProcess.name }, `MCP Error fetching tools/list`);
+      return { tools: [], resources: [] };
     } finally {
-        // Ensure close is called even if connect fails after transport creation
-        await client.close().catch(closeErr => logger.error({ err: closeErr, server: serverProcess.name }, "Error closing client during finally block."));
-        // Transport might need explicit closing if client.close doesn't handle it
-        await transport.close?.().catch(closeErr => logger.error({ err: closeErr, server: serverProcess.name }, "Error closing transport during finally block."));
+      // Ensure close is called even if connect fails after transport creation
+      await client.close().catch(closeErr => logger.error({ err: closeErr, server: serverProcess.name }, "Error closing client during finally block."));
+      // Transport might need explicit closing if client.close doesn't handle it
+      await transport.close?.().catch(closeErr => logger.error({ err: closeErr, server: serverProcess.name }, "Error closing transport during finally block."));
     }
   }));
 
@@ -218,32 +222,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   // Helper to create StdioServerParameters from LaunchedServer
   const createStdioParams = (server: LaunchedServer): StdioServerParameters | null => {
-       if (!server || !server.command || !Array.isArray(server.args)) {
-           logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
-           return null;
+    if (!server || !server.command || !Array.isArray(server.args)) {
+      logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
+      return null;
+    }
+    return {
+      command: server.command,
+      args: server.args,
+      cwd: server.cwd,
+      stderr: 'pipe',
+      env: {
+        ...process.env,
+        ...(server.env || {}),
+        PATH: `${server.env?.PATH ? server.env.PATH + ':' : ''}${process.env.PATH || ''}`
       }
-      return {
-          command: server.command,
-          args: server.args,
-          cwd: server.cwd,
-          stderr: 'pipe',
-          env: {
-              ...process.env,
-              ...(server.env || {}),
-              PATH: `${server.env?.PATH ? server.env.PATH + ':' : ''}${process.env.PATH || ''}`
-          }
-      };
+    };
   }
 
   const stdioParams = createStdioParams(targetServerProcess);
   if (!stdioParams) {
-      throw new Error(`Failed to create stdio parameters for server ${targetServerName}`);
+    throw new Error(`Failed to create stdio parameters for server ${targetServerName}`);
   }
 
   const transport = new StdioClientTransport(stdioParams);
   const client = new Client({
-      name: `contextswitcher-${targetServerName}-client-call`, // 識別しやすい名前
-      version: '0.1.0'
+    name: `contextswitcher-${targetServerName}-client-call`, // 識別しやすい名前
+    version: '0.1.0'
   });
 
   try {
