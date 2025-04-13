@@ -9,8 +9,41 @@ export type McpServerConfig = {
   env?: Record<string, string>
 }
 
+export type ContextSwitcherSettings = {
+  switchingEnabled: boolean
+  toolSuffix: string
+}
+
 export type McpConfig = {
   servers: McpServerConfig[]
+}
+
+/**
+ * ContextSwitcherの設定を読み込む関数
+ * @param config MCPサーバー設定
+ * @returns ContextSwitcherの設定情報
+ */
+export function loadContextSwitcherSettings(config: McpConfig): ContextSwitcherSettings {
+  // デフォルト設定
+  const settings: ContextSwitcherSettings = {
+    switchingEnabled: true,  // デフォルトで有効
+    toolSuffix: '_cs'        // デフォルトサフィックス
+  };
+
+  // contextSwitcherサーバーの設定を探す
+  const switcherConfig = config.servers.find(s => s.name === 'contextSwitcher');
+  if (switcherConfig && switcherConfig.env) {
+    // 環境変数から設定を読み取る
+    if (switcherConfig.env.SWITCHING_ENABLED !== undefined) {
+      settings.switchingEnabled = switcherConfig.env.SWITCHING_ENABLED !== 'false';
+    }
+
+    if (switcherConfig.env.TOOL_SUFFIX) {
+      settings.toolSuffix = switcherConfig.env.TOOL_SUFFIX;
+    }
+  }
+
+  return settings;
 }
 
 export async function loadMcpConfig(): Promise<McpConfig> {

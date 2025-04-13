@@ -6,9 +6,10 @@
 
 - Launches and manages multiple MCP servers defined in `.roo/mcp.json`
 - Routes `tools/list` requests to all registered servers and merges the results
+- Supports context switching via the `context/switch` tool
+- Adds configurable suffixes to tool names (default: `_cs`)
 - Communicates with MCP servers over `stdio` for lightweight integration
 - Designed for human-controlled context switching (explicit is better than implicit!)
-- Future support for `memory/read`, `memory/write`, and more
 
 ## 🧩 Use Cases
 
@@ -36,26 +37,59 @@ contextswitcher/
 
 ```json
 {
-  "servers": [
-    {
-      "name": "designer",
-      "command": "bun",
-      "args": ["src/mcp-server.ts"],
-      "cwd": "/Users/you/projects/awesome-agent/designer"
+  "mcpServers": {
+    "contextSwitcher": {
+      "command": "node",
+      "args": ["dist/cli.js"],
+      "cwd": "./",
+      "env": {
+        "SWITCHING_ENABLED": "true",
+        "TOOL_SUFFIX": "_cs"
+      }
     },
-    {
-      "name": "coder",
+    "coder": {
       "command": "bun",
       "args": ["src/mcp-server.ts"],
       "cwd": "/Users/you/projects/awesome-agent/coder"
+    },
+    "designer": {
+      "command": "bun",
+      "args": ["src/mcp-server.ts"],
+      "cwd": "/Users/you/projects/awesome-agent/designer"
     }
-  ]
+  }
 }
 ```
 
+## ⚙️ Context Switching
+
+The `context/switch` tool allows you to dynamically change the set of MCP servers:
+
+```json
+{
+  "method": "context/switch",
+  "params": {
+    "configPath": "/path/to/other/mcp.json"
+  }
+}
+```
+
+This will:
+
+1. Load the specified configuration file
+2. Stop all running MCP server processes
+3. Start new servers based on the configuration
+4. Return the new set of available tools
+
+## 🏷️ Tool Suffix Configuration
+
+All tools are exposed with a suffix (default: `_cs`) to avoid name collisions:
+
+- Enable/disable with the `SWITCHING_ENABLED` environment variable in the contextSwitcher config
+- Customize the suffix with the `TOOL_SUFFIX` environment variable
+
 ## 🛠 Development Notes
 
-- MVP supports only `tools/list` merging
 - CLI context switching UI (TUI or Web UI) planned
 - Goal: route all MCP traffic from Claude, Gemini, CLI, and CI tools through this gateway
 
