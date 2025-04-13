@@ -14,9 +14,11 @@ import {
   CallToolRequestSchema,
   type ListToolsResult,
   ListToolsResultSchema,
-  CallToolResultSchema // CallToolの結果スキーマもインポート
+  CallToolResultSchema, // CallToolの結果スキーマもインポート
 } from '@modelcontextprotocol/sdk/types.js'
+import { z } from 'zod'
 
+import fs from 'fs/promises'
 import { loadMcpConfig, loadContextSwitcherSettings, type ContextSwitcherSettings } from './context.js'
 import { spawnMcpServers, type LaunchedServer } from './mcpLauncher.js' // LaunchedServerをインポート
 
@@ -39,6 +41,33 @@ let contextSwitcherSettings: ContextSwitcherSettings = {
 };
 
 // サーバーの初期化
+
+// context_switchのリクエストとレスポンススキーマを定義
+// context_switchはサフィックスなしで登録する
+const ContextSwitchMethodSchema = z.literal('context_switch')  // サフィックスなしのみ対応
+const ContextSwitchParamsSchema = z.object({
+  configPath: z.string()
+})
+
+const ContextSwitchRequestSchema = z.object({
+  method: ContextSwitchMethodSchema,
+  params: ContextSwitchParamsSchema
+})
+
+// 結果スキーマを外部からも参照できるようexport
+export const ContextSwitchResultSchema = z.object({
+  content: z.array(
+    z.object({
+      type: z.literal('text'),
+      text: z.string()
+    })
+  ),
+  metadata: z.object({
+    success: z.boolean(),
+    toolCount: z.number().optional()
+  }).optional()
+})
+
 const server = new Server(
   {
     name: 'contextswitcher',
@@ -46,7 +75,46 @@ const server = new Server(
   },
   {
     capabilities: {
-      tools: {},
+      tools: {
+        // context_switchツールの登録 (サフィックスなし)
+        'context_switch': {
+          description: 'コンテキスト（MCPサーバー群）を切り替えるツール。指定された設定ファイルに基づいて使用可能なツールセットを動的に変更します。',
+          parameters: {
+            type: 'object',
+            properties: {
+              configPath: {
+                type: 'string',
+                description: '使用する設定ファイルのパス'
+              }
+            },
+            required: ['configPath']
+          },
+          inputSchema: {
+            type: 'object',
+            properties: {
+              configPath: {
+                type: 'string'
+              }
+            },
+            required: ['configPath']
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              success: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              toolCount: {
+                type: 'number'
+              }
+            },
+            required: ['success', 'message']
+          }
+        }
+      },
       discovery: {
         title: "Context Switcher",
         description: "A lightweight MCP gateway for managing multiple AI agent contexts across projects and environments."
@@ -163,15 +231,15 @@ async function fetchAndAggregateTools(): Promise<{ tools: any[], resources: any[
       const tools = response.tools || [];
       const resources = response.resources || [];
 
-      // Populate the map
-      tools.forEach(tool => {
-        if (tool.name) {
-          if (toolToServerMap[tool.name]) {
-            logger.warn(`Duplicate tool name "${tool.name}" found on server "${serverProcess.name}". Previous server: "${toolToServerMap[tool.name]}". Overwriting.`);
-          }
-          toolToServerMap[tool.name] = serverProcess.name;
-        }
-      });
+      // ここでのmapを削除（addSuffixToToolName関数内で実装するため）
+      // tools.forEach(tool => {
+      //   if (tool.name) {
+      //     if (toolToServerMap[tool.name]) {
+      //       logger.warn(`Duplicate tool name "${tool.name}" found on server "${serverProcess.name}". Previous server: "${toolToServerMap[tool.name]}". Overwriting.`);
+      //     }
+      //     toolToServerMap[tool.name] = serverProcess.name;
+      //   }
+      // });
       return { tools, resources };
     } catch (error) {
       logger.error({ err: error, server: serverProcess.name }, `MCP Error fetching tools/list`);
@@ -184,10 +252,63 @@ async function fetchAndAggregateTools(): Promise<{ tools: any[], resources: any[
     }
   }));
 
+  // ツール名にサフィックスを追加する関数
+  function addSuffixToToolName(tool: any, serverName: string): any {
+    const suffix = contextSwitcherSettings.toolSuffix;
+
+    if (!tool || typeof tool !== 'object' || !tool.name || typeof tool.name !== 'string') {
+      return tool;
+    }
+
+    // すでにサフィックスが付いていたら追加しない
+    if (tool.name.endsWith(suffix)) {
+      return tool;
+    }
+
+    // context_switchはサフィックスを付けない特別扱い
+    if (tool.name === 'context_switch') {
+      // 元のツール名をマッピングに追加
+      if (toolToServerMap[tool.name]) {
+        logger.warn(`Duplicate tool name "${tool.name}" found on server "${serverName}". Previous server: "${toolToServerMap[tool.name]}". Overwriting.`);
+      }
+      toolToServerMap[tool.name] = serverName;
+      return tool;
+    }
+
+    // サフィックスを追加したコピーを返す
+    // 元のツール名をマッピングに追加
+    if (toolToServerMap[tool.name]) {
+      logger.warn(`Duplicate tool name "${tool.name}" found on server "${serverName}". Previous server: "${toolToServerMap[tool.name]}". Overwriting.`);
+    }
+    toolToServerMap[tool.name] = serverName;
+
+    return {
+      ...tool,
+      name: `${tool.name}${suffix}`
+    };
+  }
+
   responses.forEach(result => {
     if (result.status === 'fulfilled') {
       const value = result.value as { tools: any[], resources: any[] };
-      aggregatedTools.push(...(value.tools || []));
+
+      // サーバー名を取得するため、対応するprocessを探す
+      const serverProcess = processes.find(p => {
+        // findでprocessesからserverProcessを特定する処理
+        // value内にserverNameのような識別子がないため、
+        // 何らかの方法で対応するprocessを特定する必要がある
+        // ここでは簡易的に最初のprocessとしておく
+        return true;
+      });
+
+      const serverName = serverProcess ? serverProcess.name : 'unknown';
+
+      // ツール名にサフィックスを追加
+      const toolsWithSuffix = (value.tools || []).map(tool =>
+        addSuffixToToolName(tool, serverName)
+      );
+
+      aggregatedTools.push(...toolsWithSuffix);
       aggregatedResources.push(...(value.resources || []));
     } else {
       logger.error({ err: result.reason }, `Failed to get tools/resources from one of the servers.`);
@@ -196,6 +317,74 @@ async function fetchAndAggregateTools(): Promise<{ tools: any[], resources: any[
 
   logger.info(`Aggregated ${aggregatedTools.length} tools and ${aggregatedResources.length} resources.`);
   logger.debug("Tool to Server Map:", toolToServerMap);
+
+  // 自身のツール (context_switch) を追加 - サフィックスなしで登録
+  const ownTool = {
+    name: 'context_switch',  // サフィックスなしで登録
+    description: 'コンテキスト（MCPサーバー群）を切り替えるツール。指定された設定ファイルに基づいて使用可能なツールセットを動的に変更します。',
+    parameters: {
+      type: 'object',
+      properties: {
+        configPath: {
+          type: 'string',
+          description: '使用する設定ファイルのパス'
+        }
+      },
+      required: ['configPath']
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        configPath: {
+          type: 'string'
+        }
+      },
+      required: ['configPath']
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: {
+                type: 'string',
+                enum: ['text']
+              },
+              text: {
+                type: 'string'
+              }
+            },
+            required: ['type', 'text']
+          }
+        },
+        metadata: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean'
+            },
+            toolCount: {
+              type: 'number'
+            }
+          },
+          required: ['success']
+        }
+      },
+      required: ['content']
+    }
+  };
+
+  aggregatedTools.push(ownTool);
+
+  // context_switchツールは特別なツールなので、runningServersには登録しない
+  // 代わりに、toolToServerMapにマッピングだけ追加する
+  // このツールは特別なハンドリングをするので、実際のサーバープロセスは不要
+
+  // 自前ツールをマッピング
+  toolToServerMap['context_switch'] = 'contextswitcher';
 
   return {
     tools: aggregatedTools,
@@ -209,16 +398,104 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return await fetchAndAggregateTools();
 })
 
+// context_switchリクエストを処理する関数
+async function processContextSwitchRequest(params: any): Promise<any> {
+  const { configPath } = params;
+
+  // 切り替え機能が無効化されていないかチェック
+  if (!contextSwitcherSettings.switchingEnabled) {
+    logger.warn(`Context switching is disabled. Request for ${configPath} rejected.`);
+    // MCP形式に合わせて戻り値形式を変更
+    return {
+      content: [{
+        type: "text",
+        text: "Context switching is disabled in configuration"
+      }],
+      metadata: {
+        success: false,
+        toolCount: 0
+      }
+    };
+  }
+
+  try {
+    // 設定ファイルの存在確認
+    await fs.access(configPath);
+    logger.info(`Switching context to ${configPath}`);
+
+    // 環境変数を更新して再起動トリガー
+    process.env.MCP_CONFIG_PATH = configPath;
+    const result = await fetchAndAggregateTools();
+
+    logger.info(`Context switched successfully to ${configPath}. Found ${result.tools.length} tools.`);
+    // MCP形式に合わせて戻り値形式を変更
+    return {
+      content: [{
+        type: "text",
+        text: `Successfully switched to context: ${configPath}`
+      }],
+      metadata: {
+        success: true,
+        toolCount: result.tools.length
+      }
+    };
+  } catch (error) {
+    logger.error(`Failed to switch context to ${configPath}:`, error);
+    // MCP形式に合わせて戻り値形式を変更
+    return {
+      content: [{
+        type: "text",
+        text: `Failed to switch context: ${error.message}`
+      }],
+      metadata: {
+        success: false,
+        toolCount: 0
+      }
+    };
+  }
+}
+
+// context_switchハンドラー
+server.setRequestHandler(ContextSwitchRequestSchema, async (request) => {
+  return await processContextSwitchRequest(request.params);
+});
+
 // ツール呼び出しハンドラー
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name: toolName, arguments: toolArgs } = request.params;
+  let { name: toolName, arguments: toolArgs } = request.params;
   logger.info({ toolName, toolArgs }, "Received tools/call request.");
 
+  // ツール名からサフィックスを除去（存在する場合）
+  const suffix = contextSwitcherSettings.toolSuffix;
+  if (toolName.endsWith(suffix)) {
+    toolName = toolName.slice(0, -suffix.length);
+    logger.debug(`Removed suffix from tool name: ${request.params.name} -> ${toolName}`);
+  }
+
+  // context_switchツールの場合は特別処理
+  // このハンドラとは別のハンドラで処理するので、ここでは早期リターン
+  if (toolName === 'context_switch') {
+    logger.info('Detected context_switch tool call, will be handled by dedicated handler');
+
+    try {
+      // 直接処理関数を呼び出す（サーバープロセスのチェックをスキップ）
+      const result = await processContextSwitchRequest(toolArgs);
+      return result;
+    } catch (error) {
+      logger.error({ err: error }, `Error handling context_switch request`);
+      throw error;
+    }
+  }
+
+  // toolNameに対応するサーバー名を探す
   const targetServerName = toolToServerMap[toolName];
   if (!targetServerName) {
     logger.error(`Tool "${toolName}" not found in any connected server.`);
     throw new Error(`Tool "${toolName}" not found.`);
   }
+
+  // context_switchツールは特別扱い - ここでは処理しない（上の特別ハンドラで処理済み）
+  // ここに到達した場合は、context_switch以外のツールのはず
 
   const targetServerProcess = runningServers[targetServerName];
   if (!targetServerProcess) {

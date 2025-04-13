@@ -1,29 +1,15 @@
 {
   "mcpServers": {
     "contextSwitcher": {
-      "command": "node",
+      "command": "bun",
       "args": [
-        "dist/cli.js"
+        "src/cli.ts"
       ],
       "cwd": "./",
       "env": {
         "SWITCHING_ENABLED": "true",
         "TOOL_SUFFIX": "_cs"
       }
-    },
-    "coder": {
-      "command": "bun",
-      "args": [
-        "src/mcp-server.ts"
-      ],
-      "cwd": "/Users/you/projects/awesome-agent/coder"
-    },
-    "designer": {
-      "command": "bun",
-      "args": [
-        "src/mcp-server.ts"
-      ],
-      "cwd": "/Users/you/projects/awesome-agent/designer"
     }
   }
 }

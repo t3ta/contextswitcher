@@ -118,7 +118,7 @@ describe('loadContextSwitcherSettings', () => {
     const config = {
       servers: [
         {
-          name: 'contextSwitcher',
+          name: 'contextswitcher',
           command: 'node',
           args: ['cli.js'],
           cwd: '/path/to/switcher',
@@ -141,7 +141,7 @@ describe('loadContextSwitcherSettings', () => {
     const config = {
       servers: [
         {
-          name: 'contextSwitcher',
+          name: 'contextswitcher',
           command: 'node',
           args: ['cli.js'],
           cwd: '/path/to/switcher',

@@ -6,7 +6,7 @@
 
 - Launches and manages multiple MCP servers defined in `.roo/mcp.json`
 - Routes `tools/list` requests to all registered servers and merges the results
-- Supports context switching via the `context/switch` tool
+- Supports context switching via the `context_switch` tool
 - Adds configurable suffixes to tool names (default: `_cs`)
 - Communicates with MCP servers over `stdio` for lightweight integration
 - Designed for human-controlled context switching (explicit is better than implicit!)
@@ -63,11 +63,11 @@ contextswitcher/
 
 ## ⚙️ Context Switching
 
-The `context/switch` tool allows you to dynamically change the set of MCP servers:
+The `context_switch` tool allows you to dynamically change the set of MCP servers:
 
 ```json
 {
-  "method": "context/switch",
+  "method": "context_switch",
   "params": {
     "configPath": "/path/to/other/mcp.json"
   }
