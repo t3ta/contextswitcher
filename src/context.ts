@@ -31,7 +31,7 @@ export function loadContextSwitcherSettings(config: McpConfig): ContextSwitcherS
   };
 
   // contextSwitcherサーバーの設定を探す
-  const switcherConfig = config.servers.find(s => s.name === 'contextSwitcher');
+  const switcherConfig = config.servers.find(s => s.name === 'contextswitcher');
   if (switcherConfig && switcherConfig.env) {
     // 環境変数から設定を読み取る
     if (switcherConfig.env.SWITCHING_ENABLED !== undefined) {
