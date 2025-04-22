@@ -38,23 +38,8 @@ let contextSwitcherSettings: ContextSwitcherSettings = {
   toolSuffix: '_cs'
 };
 
-// サーバーの初期化
-const server = new Server(
-  {
-    name: 'contextswitcher',
-    version: '0.1.0'
-  },
-  {
-    capabilities: {
-      tools: {},
-      discovery: {
-        title: "Context Switcher",
-        description: "A lightweight MCP gateway for managing multiple AI agent contexts across projects and environments."
-      }
-    }
-    // debug: null は無効なオプションなので削除
-  }
-)
+// Serverインスタンスを遅延生成するための変数
+let server: Server;
 
 // --- Helper Function to Stop Running Servers ---
 async function stopRunningServers() {
@@ -203,88 +188,7 @@ async function fetchAndAggregateTools(): Promise<{ tools: any[], resources: any[
   }
 }
 
-// ツールリストハンドラー (関数を呼び出すだけ)
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  // 毎回最新のツールリストを取得してマップを更新
-  return await fetchAndAggregateTools();
-})
-
-// ツール呼び出しハンドラー
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name: toolName, arguments: toolArgs } = request.params;
-  logger.info({ toolName, toolArgs }, "Received tools/call request.");
-
-  const targetServerName = toolToServerMap[toolName];
-  if (!targetServerName) {
-    logger.error(`Tool "${toolName}" not found in any connected server.`);
-    throw new Error(`Tool "${toolName}" not found.`);
-  }
-
-  const targetServerProcess = runningServers[targetServerName];
-  if (!targetServerProcess) {
-    logger.error(`Server process "${targetServerName}" for tool "${toolName}" not found or not running.`);
-    throw new Error(`Server process "${targetServerName}" not available.`);
-  }
-
-  // Client/Transport/Schemaのインポートはトップレベルで行ったため削除
-
-  // Helper to create StdioServerParameters from LaunchedServer
-  const createStdioParams = (server: LaunchedServer): StdioServerParameters | null => {
-    if (!server || !server.command || !Array.isArray(server.args)) {
-      logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
-      return null;
-    }
-    return {
-      command: server.command,
-      args: server.args,
-      cwd: server.cwd,
-      stderr: 'pipe',
-      env: {
-        ...process.env,
-        ...(server.env || {}),
-        PATH: `${server.env?.PATH ? server.env.PATH + ':' : ''}${process.env.PATH || ''}`
-      }
-    };
-  }
-
-  const stdioParams = createStdioParams(targetServerProcess);
-  if (!stdioParams) {
-    throw new Error(`Failed to create stdio parameters for server ${targetServerName}`);
-  }
-
-  const transport = new StdioClientTransport(stdioParams);
-  const client = new Client({
-    name: `contextswitcher-${targetServerName}-client-call`, // 識別しやすい名前
-    version: '0.1.0'
-  });
-
-  try {
-    await client.connect(transport);
-    logger.info({ toolName, targetServerName }, `Forwarding tools/call request...`);
-
-    const callRequest = {
-      method: "tools/call",
-      params: { name: toolName, arguments: toolArgs }
-    } as const;
-
-    // 適切な結果スキーマを使用
-    const result = await client.request(callRequest, CallToolResultSchema);
-    logger.info({ toolName, targetServerName }, `Received response from downstream server.`);
-    return result; // そのままレスポンスを返す
-
-  } catch (error) {
-    logger.error({ err: error, toolName, targetServerName }, `Error forwarding tools/call request`);
-    throw error; // エラーを上位に伝播させる
-  } finally {
-    await client.close();
-    logger.debug({ toolName, targetServerName }, `Closed connection for tools/call.`);
-  }
-})
-
-// エラーハンドリング
-server.onerror = (error) => {
-  logger.error('Server error:', error)
-}
+// ツールリストハンドラー/ツール呼び出しハンドラー/エラーハンドリング/クリーンアップ関数/プロセス終了ハンドリングは変更なし
 
 // クリーンアップ関数
 async function cleanup() {
@@ -312,13 +216,94 @@ process.on('SIGTERM', async () => {
 // メイン処理
 async function main() {
   try {
+    // 起動時に一度ツールリストを取得してマップを初期化
+    const { tools } = await fetchAndAggregateTools();
+
+    // Serverインスタンスをここで生成し、capabilities.toolsに初期ツールリストをセット
+    server = new Server(
+      {
+        name: 'contextswitcher',
+        version: '0.1.0'
+      },
+      {
+        capabilities: {
+          tools: tools.reduce((acc, t) => (t.name ? { ...acc, [t.name]: t } : acc), {}),
+          discovery: {
+            title: "Context Switcher",
+            description: "A lightweight MCP gateway for managing multiple AI agent contexts across projects and environments."
+          }
+        }
+      }
+    );
+
+    // ハンドラー登録
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+      return await fetchAndAggregateTools();
+    });
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name: toolName, arguments: toolArgs } = request.params;
+      logger.info({ toolName, toolArgs }, "Received tools/call request.");
+      const targetServerName = toolToServerMap[toolName];
+      if (!targetServerName) {
+        logger.error(`Tool \"${toolName}\" not found in any connected server.`);
+        throw new Error(`Tool \"${toolName}\" not found.`);
+      }
+      const targetServerProcess = runningServers[targetServerName];
+      if (!targetServerProcess) {
+        logger.error(`Server process \"${targetServerName}\" for tool \"${toolName}\" not found or not running.`);
+        throw new Error(`Server process \"${targetServerName}\" not available.`);
+      }
+      const createStdioParams = (server: LaunchedServer): StdioServerParameters | null => {
+        if (!server || !server.command || !Array.isArray(server.args)) {
+          logger.error({ server: server.name }, `Invalid config for '${server.name}': 'command' and 'args' are required.`);
+          return null;
+        }
+        return {
+          command: server.command,
+          args: server.args,
+          cwd: server.cwd,
+          stderr: 'pipe',
+          env: {
+            ...process.env,
+            ...(server.env || {}),
+            PATH: `${server.env?.PATH ? server.env.PATH + ':' : ''}${process.env.PATH || ''}`
+          }
+        };
+      }
+      const stdioParams = createStdioParams(targetServerProcess);
+      if (!stdioParams) {
+        throw new Error(`Failed to create stdio parameters for server ${targetServerName}`);
+      }
+      const transport = new StdioClientTransport(stdioParams);
+      const client = new Client({
+        name: `contextswitcher-${targetServerName}-client-call`,
+        version: '0.1.0'
+      });
+      try {
+        await client.connect(transport);
+        logger.info({ toolName, targetServerName }, `Forwarding tools/call request...`);
+        const callRequest = {
+          method: "tools/call",
+          params: { name: toolName, arguments: toolArgs }
+        } as const;
+        const result = await client.request(callRequest, CallToolResultSchema);
+        logger.info({ toolName, targetServerName }, `Received response from downstream server.`);
+        return result;
+      } catch (error) {
+        logger.error({ err: error, toolName, targetServerName }, `Error forwarding tools/call request`);
+        throw error;
+      } finally {
+        await client.close();
+        logger.debug({ toolName, targetServerName }, `Closed connection for tools/call.`);
+      }
+    });
+    server.onerror = (error) => {
+      logger.error('Server error:', error)
+    }
+
     const transport = new StdioServerTransport(process.stdin, process.stdout)
     await server.connect(transport)
     logger.info('MCP Server started')
-
-    // 起動時に一度ツールリストを取得してマップを初期化
-    await fetchAndAggregateTools();
-
   } catch (error) {
     logger.error('Failed to start server:', error)
     process.exit(1)
